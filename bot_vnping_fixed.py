@@ -780,7 +780,7 @@ def nap_tien(msg):
         f"👤 *Chủ TK:* *{cfg['account_name'] or 'DUONG THI TU TRINH'}*\n"
         f"📝 *Nội dung CK:*\n      `{noi_dung}`\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "📸 *Chuyển xong gửi ảnh bill để admin duyệt!*"
+        "📸 *Chuyển xong nhắn admin gửi bill để duyệt!*"
     )
 
     # QR chỉ được gửi nếu người quản trị đã cấu hình QR thật.
