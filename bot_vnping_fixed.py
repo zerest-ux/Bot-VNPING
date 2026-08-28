@@ -82,6 +82,518 @@ THE_CAO_PRICES = {
 
 # SẢN PHẨM API FAKE LAG
 FAKELAG_API_PRODUCTS = [
+    {"id":"FAKELAG_1D","name":"FakeLag 1 Ngày","desc":"Key FakeLag 1 ngày","price":5000,"days":1,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=1","api_product":True},
+    {"id":"FAKELAG_7D","name":"FakeLag 7 Ngày","desc":"Key FakeLag 7 ngày","price":15000,"days":7,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=7","api_product":True},
+    {"id":"FAKELAG_30D","name":"FakeLag 30 Ngày","desc":"Key FakeLag 30 ngày","price":25000,"days":30,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=30","api_product":True},
+]
+DEFAULT_PRODUCTS = [dict(x, stock=["API_AUTO"] * 9999) for x in FAKELAG_API_PRODUCTS]
+
+_lock = threading.Lock()
+
+# DỮ LIỆU
+def load():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            d.setdefault("users", {})
+            # QUAN TRỌNG: không được reset products mỗi lần load().
+            # Nếu reset ở đây thì thêm/xóa kho sẽ mất ngay sau lần đọc data tiếp theo.
+            if not isinstance(d.get("products"), list):
+                d["products"] = DEFAULT_PRODUCTS[:]
+            elif not d["products"]:
+                d["products"] = DEFAULT_PRODUCTS[:]
+            d.setdefault("orders", [])
+            d.setdefault("deposits", [])
+            d.setdefault("the_cao_orders", [])
+            d.setdefault("rental_orders", [])
+            d.setdefault("rent_counter", 0)
+            d.setdefault("dep_counter", 0)
+            d.setdefault("ord_counter", 0)
+            d.setdefault("the_counter", 0)
+            d.setdefault("states", {})
+            d.setdefault("admins", ADMIN_IDS[:])
+            d.setdefault("banned_admins", [])
+            d.setdefault("banned_users", [])      # user bị ban hẳn (không thể /start)
+            d.setdefault("blocked_users", [])     # user bị cấm dùng bot (vẫn /start được nhưng không thao tác)
+            d.setdefault("banned_ips", [])        # danh sách IP bị chặn (thủ công, không tự phát hiện vì Telegram không lộ IP)
+            d.setdefault("bank_config", {
+                "qr_url": BANK_QR_URL,
+                "account": BANK_ACCOUNT,
+                "account_name": BANK_ACCOUNT_NAME,
+                "bank_name": BANK_NAME,
+            })
+            if not isinstance(d.get("bank_config"), dict):
+                d["bank_config"] = {}
+            d["bank_config"].setdefault("qr_url", BANK_QR_URL)
+            d["bank_config"].setdefault("account", BANK_ACCOUNT)
+            d["bank_config"].setdefault("account_name", BANK_ACCOUNT_NAME)
+            d["bank_config"].setdefault("bank_name", BANK_NAME)
+            return d
+        except Exception:
+            pass
+    return {
+        "users": {}, "products": DEFAULT_PRODUCTS[:],
+        "orders": [], "deposits": [], "the_cao_orders": [], "rental_orders": [],
+        "rent_counter": 0, "dep_counter": 0, "ord_counter": 0, "the_counter": 0,
+        "states": {}, "admins": ADMIN_IDS[:], "banned_admins": [],
+        "banned_users": [], "blocked_users": [], "banned_ips": [],
+        "bank_config": {
+            "qr_url": BANK_QR_URL,
+            "account": BANK_ACCOUNT,
+            "account_name": BANK_ACCOUNT_NAME,
+            "bank_name": BANK_NAME,
+        }
+    }
+
+def save(d):
+    tmp = DATA_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, DATA_FILE)
+
+def get_user(d, uid):
+    k = str(uid)
+    if k not in d["users"]:
+        d["users"][k] = {
+            "balance": 0, "name": "", "username": "",
+            "join_date": now(), "orders": []
+        }
+    return d["users"][k]
+
+def get_bank_config(d=None):
+    """Lấy thông tin ngân hàng từ DATA.
+    Bot mẹ: fallback về constants cố định.
+    Bot thuê (RENTAL_CHILD=1): fallback về ENV vars do bot mẹ truyền vào.
+    """
+    if d is None:
+        d = load()
+    cfg = d.get("bank_config", {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+    if os.getenv("RENTAL_CHILD") == "1":
+        fb_qr   = os.getenv("BANK_QR_URL", "").strip()
+        fb_acc  = os.getenv("BANK_ACCOUNT", "").strip()
+        fb_name = os.getenv("BANK_ACCOUNT_NAME", "").strip()
+        fb_bank = os.getenv("BANK_NAME", "").strip()
+    else:
+        fb_qr   = BANK_QR_URL
+        fb_acc  = BANK_ACCOUNT
+        fb_name = BANK_ACCOUNT_NAME
+        fb_bank = BANK_NAME
+    return {
+        "qr_url":       str(cfg.get("qr_url")       or fb_qr   or "").strip(),
+        "account":      str(cfg.get("account")       or fb_acc  or "").strip(),
+        "account_name": str(cfg.get("account_name")  or fb_name or "").strip(),
+        "bank_name":    str(cfg.get("bank_name")     or fb_bank or "").strip(),
+    }
+
+
+def set_bank_config(d, qr_url=None, account=None, account_name=None, bank_name=None):
+    cfg = d.setdefault("bank_config", {})
+    if qr_url is not None: cfg["qr_url"] = str(qr_url).strip()
+    if account is not None: cfg["account"] = str(account).strip()
+    if account_name is not None: cfg["account_name"] = str(account_name).strip()
+    if bank_name is not None: cfg["bank_name"] = str(bank_name).strip()
+    return cfg
+
+
+def find_product(d, pid):
+    return next((p for p in d["products"] if p["id"] == pid), None)
+
+def fmt(n):
+    return f"{int(n):,}đ".replace(",", ".")
+
+def now():
+    return datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+def rand_code(n=6):
+    return "".join(random.choices(string.digits, k=n))
+
+def mixed_id(d, prefix, field="id", length=7):
+    """Tạo mã đơn gồm cả chữ và số, không trùng mã cũ."""
+    existing = {str(x.get(field, "")).upper() for x in (d.get("orders", []) + d.get("deposits", []) + d.get("the_cao_orders", []) + d.get("rental_orders", [])) if isinstance(x, dict)}
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        # Luôn có ít nhất 1 chữ và 1 số sau prefix, tránh mã kiểu toàn số.
+        tail = [random.choice(string.ascii_uppercase), random.choice(string.digits)]
+        tail += [random.choice(alphabet) for _ in range(max(0, length - 2))]
+        random.shuffle(tail)
+        code = prefix.upper() + "".join(tail)
+        if code not in existing:
+            return code
+
+def is_admin(uid):
+    uid = int(uid)
+    if uid == SUPER_ADMIN:
+        return True
+    d = load()
+    return uid in d.get("admins", ADMIN_IDS) and uid not in d.get("banned_admins", [])
+
+def is_super(uid):
+    return int(uid) == SUPER_ADMIN
+
+def get_admin_list():
+    d = load()
+    admins = set(d.get("admins", ADMIN_IDS))
+    banned = set(d.get("banned_admins", []))
+    admins -= banned
+    admins.add(SUPER_ADMIN)
+    return list(admins)
+
+def is_user_banned(uid):
+    d = load()
+    return str(uid) in d.get("banned_users", [])
+
+def is_user_blocked(uid):
+    d = load()
+    return str(uid) in d.get("blocked_users", [])
+
+def guard(msg):
+    uid = msg.from_user.id
+    if is_user_banned(uid):
+        try:
+            bot.send_message(uid, f"🚫 *Tài khoản của bạn đã bị BAN vĩnh viễn khỏi bot!*\n\nLiên hệ {SUPPORT} nếu có thắc mắc.", parse_mode="Markdown")
+        except Exception:
+            pass
+        return True
+    if is_user_blocked(uid):
+        try:
+            bot.send_message(uid, f"⛔ *Tài khoản của bạn đang bị TẠM CẤM sử dụng bot!*\n\nLiên hệ {SUPPORT} để được hỗ trợ gỡ cấm.", parse_mode="Markdown")
+        except Exception:
+            pass
+        return True
+    return False
+
+def post_new_stock_to_channel(product, added_qty, total_qty):
+    if not CHANNEL_IDS:
+        return
+    icon = "🟢" if total_qty > 0 else "🔴"
+    # Escape ký tự đặc biệt Markdown (_ * [ ] ( ) ~ ` > # + - = | { } . !)
+    # để tránh lỗi "can't find end of entity" khi tên sản phẩm/bot có dấu _ hoặc *
+    def esc(s):
+        for ch in ["_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"]:
+            s = str(s).replace(ch, "\\" + ch)
+        return s
+
+    text = (
+        f"🆕 *THÔNG BÁO CÓ HÀNG MỚI*\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎮 Sản phẩm: *{esc(product['name'])}*\n"
+        f"➕ Đã thêm: *{added_qty}*\n"
+        f"{icon} Kho hiện tại: *{total_qty}*\n"
+        f"💰 Giá: *{esc(fmt(product['price']))}*\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👉 Bấm Để Mua Acc: [*Click*](https://t.me/HikaNewBot_Bot)"
+    )
+
+    for cid in CHANNEL_IDS:
+        try:
+            bot.send_message(cid, text, parse_mode="MarkdownV2", disable_web_page_preview=True)
+        except Exception as e:
+            for aid in get_admin_list():
+                try:
+                    bot.send_message(aid, f"⚠️ Lỗi gửi thông báo lên kênh {cid}: {e}")
+                except Exception:
+                    pass
+
+# Chống spam tin nhắn / ảnh
+_msg_rate = {}      # {uid: [timestamps]}
+_photo_rate = {}     # {uid: [timestamps]}
+
+def is_msg_spam(uid, limit=6, window=8):
+    now_ts = time.time()
+    hist = _msg_rate.setdefault(uid, [])
+    hist[:] = [t for t in hist if now_ts - t < window]
+    hist.append(now_ts)
+    return len(hist) > limit
+
+def is_photo_spam(uid, limit=4, window=15):
+    now_ts = time.time()
+    hist = _photo_rate.setdefault(uid, [])
+    hist[:] = [t for t in hist if now_ts - t < window]
+    hist.append(now_ts)
+    return len(hist) > limit
+
+# Kiểm tra ảnh có khả năng là bill MoMo hay không (OCR nhẹ, có fallback an toàn)
+try:
+    import pytesseract
+    from PIL import Image
+    _OCR_AVAILABLE = True
+except Exception:
+    _OCR_AVAILABLE = False
+
+BILL_KEYWORDS = [
+    "momo", "chuyển tiền", "chuyen tien", "giao dịch", "giao dich",
+    "số tiền", "so tien", "nội dung", "noi dung", "thành công", "thanh cong",
+    "ck", "napas", "vietqr", "ngân hàng", "ngan hang", "biên lai", "bien lai",
+]
+
+def looks_like_bill(file_path):
+    try:
+        if _OCR_AVAILABLE:
+            img = Image.open(file_path)
+            text = pytesseract.image_to_string(img, lang="vie+eng").lower()
+            text = text.replace(" ", "")
+            hit = any(kw.replace(" ", "") in text for kw in BILL_KEYWORDS)
+            if hit:
+                return True, "ocr_match"
+            return False, "ocr_no_match"
+        else:
+            # Fallback: chỉ kiểm tra hình dạng ảnh (screenshot MoMo thường là ảnh dọc, cao > rộng)
+            from PIL import Image as _Image
+            img = _Image.open(file_path)
+            w, h = img.size
+            if h > w * 1.15:  # ảnh dọc rõ ràng, giống screenshot điện thoại
+                return True, "shape_ok"
+            return False, "shape_suspicious"
+    except Exception:
+        # Không đọc được ảnh (lỗi thư viện, file hỏng...) — không chặn oan, để admin tự xem xét
+        return True, "check_skipped"
+
+def expires_at_days(days):
+    return (datetime.datetime.now() + datetime.timedelta(days=int(days))).isoformat(timespec="seconds")
+
+def key_expired(order):
+    try:
+        return datetime.datetime.now() >= datetime.datetime.fromisoformat(order["expires_at"])
+    except Exception:
+        return True
+
+def remaining_text(order):
+    try:
+        sec = int((datetime.datetime.fromisoformat(order["expires_at"]) - datetime.datetime.now()).total_seconds())
+        if sec <= 0: return "Expired"
+        days, rem = divmod(sec, 86400); hours, rem = divmod(rem, 3600); mins = rem // 60
+        return f"{days}d {hours}h {mins}m"
+    except Exception:
+        return "N/A"
+
+# BOT
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None, threaded=False)
+
+# KEYBOARDS
+def create_fakelag_key(product):
+    """Call the FakeLag server. The API response body is the real key."""
+    url = str(product.get("api_url", "")).strip()
+    if not url:
+        raise RuntimeError("API URL chưa được cấu hình / API URL is not configured")
+    try:
+        response = requests.get(
+            url, timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (TelegramBot)"}
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"API connection failed: {exc}")
+    key = response.text.strip()
+    if not key:
+        raise RuntimeError("Server API returned no key")
+    return key
+
+def kb_main(uid=None):
+    # MENU CHÍNH CHỈ TIẾNG VIỆT.
+    # Bot thuê không được có nút "Thuê Bot" của bot mẹ.
+    k = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    k.add("💰 Nạp tiền", "👜 Số dư")
+    k.add("🛒 Mua hàng", "📦 Đơn của tôi")
+    if os.getenv("RENTAL_CHILD") != "1":
+        k.add("🤖 Thuê Bot", "❓ Hướng dẫn")
+    else:
+        k.add("❓ Hướng dẫn")
+    return k
+
+def kb_admin():
+    k = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    k.add("➕ Thêm hàng", "📋 Quản lý hàng",
+          "⏳ Lệnh nạp chờ", "📊 Thống kê",
+          "📢 Thông báo", "👥 Danh sách user",
+          "👑 Quản lý admin", "🚫 Ban / Chặn User",
+          "🏠 Main")
+    return k
+
+def kb_huy(uid=None):
+    # Chỉ dùng tiếng Việt; không còn chức năng chuyển ngôn ngữ trong menu.
+    k = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    k.add("❌ Hủy")
+    return k
+
+
+def kb_rent_bot():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(
+        "📅 1 Tuần - 25.000đ", callback_data="RENT|1W"
+    ))
+    kb.add(types.InlineKeyboardButton("❌ Hủy", callback_data="RENT_CANCEL"))
+    return kb
+
+
+def validate_telegram_bot_token(token):
+    try:
+        r=requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=15)
+        data=r.json()
+        return bool(data.get("ok")), data.get("result", {})
+    except Exception:
+        return False, {}
+
+def launch_rental_bot(token, admin_id, rent_id, days=7, expires_at=None, bank=None):
+    # Dùng hạn thuê đã lưu trong DATA, không tính lại 7 ngày khi restart.
+    end_at = expires_at or (datetime.datetime.now()+datetime.timedelta(days=days)).isoformat(timespec="seconds")
+    bank = bank or {}
+    env=os.environ.copy()
+    env.update({
+        "BOT_TOKEN": token,
+        "SUPER_ADMIN": str(admin_id),
+        "ADMIN_IDS": str(admin_id),
+        "DATA_FILE": f"rental_{rent_id}.json",
+        "RENTAL_END_AT": end_at,
+        "RENTAL_CHILD": "1",
+        "BANK_QR_URL": str(bank.get("qr_url", "")).strip(),
+        "BANK_ACCOUNT": str(bank.get("account", "")).strip(),
+        "BANK_ACCOUNT_NAME": str(bank.get("account_name", "")).strip(),
+        "BANK_NAME": str(bank.get("bank_name", "")).strip(),
+    })
+    return subprocess.Popen([sys.executable, os.path.abspath(__file__)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def process_alive(pid):
+    try:
+        pid = int(pid)
+        if pid <= 0: return False
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+def rental_text(uid=None):
+    return (
+        "*🤖 DỊCH VỤ THUÊ BOT*\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🤖 *Bạn sẽ được cấp một bot riêng chạy trên server của chúng tôi.*\n"
+        "📦 *Bot có đầy đủ tính năng bán key, nạp tiền tự động (giản lược).*\n"
+        "💰 *Giá thuê theo tuần: 25.000đ*\n"
+        "📌 *Sau khi thanh toán, vui lòng cung cấp:*\n"
+        "   • *Token Bot của bạn*\n"
+        "   • *ID Admin của bạn*\n"
+        "   • *QR Url*\n"
+        "   • *Số tài khoản*\n"
+        "   • *Tên Tài Khoản*\n"
+        "   • *Tên Ngân Hàng*\n"
+        "   • *Bot sẽ được tự động cài đặt và chạy.*\n"
+        "\n"
+        "*Chọn gói thuê bên dưới:*"
+    )
+
+def kb_shop(products, balance):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for p in products:
+        if p.get("api_product"):
+            kb.add(types.InlineKeyboardButton(f" {p['name']} • {fmt(p['price'])}", callback_data=f"VIEW|{p['id']}"))
+        else:
+            qty = len(p.get("stock", []))
+            icon = "✅" if qty > 0 else "❌"
+            kb.add(types.InlineKeyboardButton(f"{icon}  {p['name']}  •  {fmt(p['price'])}  •  Còn {qty}", callback_data=f"VIEW|{p['id']}"))
+    kb.add(types.InlineKeyboardButton("🏠 Quay lại Menu", callback_data="MAIN"))
+    return kb
+
+def kb_confirm_buy(pid):
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("✅ Xác nhận mua", callback_data=f"BUY|{pid}"),
+        types.InlineKeyboardButton("↩️ Quay lại", callback_data="SHOP")
+    )
+    return kb
+
+def kb_the_cao():
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    for nha_mang in ["VIETTEL", "VINAPHONE", "MOBIFONE", "ZING", "GARENA"]:
+        kb.add(types.InlineKeyboardButton(
+            f"📱 {nha_mang}", callback_data=f"THE|{nha_mang}"
+        ))
+    kb.add(types.InlineKeyboardButton("🏠 Quay lại", callback_data="MAIN"))
+    return kb
+
+def kb_menh_gia(nha_mang):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for mg, gia_thu in THE_CAO_PRICES.items():
+        kb.add(types.InlineKeyboardButton(
+            f"{fmt(mg)} → Nạp {fmt(gia_thu)}",
+            callback_data=f"MG|{nha_mang}|{mg}"
+        ))
+    kb.add(types.InlineKeyboardButton("↩️ Quay lại", callback_data="THE_MENU"))
+    return kb
+
+def main_shop_text(uid, name=None, balance=None):
+    if name is None:
+        name = ""
+    if balance is None:
+        with _lock:
+            d = load()
+            u = get_user(d, uid)
+            balance = u.get("balance", 0)
+    return (
+        f"*🏪 SHOP HACK FREEFIRE*\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👋 Xin chào *{name}*\n"
+        f"👜 Số dư: *{fmt(balance)}*\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔰 *Bảo mật - Chất lượng - An toàn*\n"
+        f"⚡ *Giao hàng tự động 24/7*\n\n"
+        f"✨ Chọn chức năng bên dưới 👇"
+    )
+
+
+
+# 🤖 THUÊ BOT
+@bot.message_handler(func=lambda m: m.text == "🤖 Thuê Bot")
+def thue_bot(msg
+
+try:
+    _THE_CAO_PID, _THE_CAO_KEY, _THE_CAO_WALLET = get_the_cao_secrets()
+except Exception:
+    _THE_CAO_PID, _THE_CAO_KEY, _THE_CAO_WALLET = "", "", ""
+
+BOT_TOKEN  = os.getenv("BOT_TOKEN", "8637746220:AAGDcwEVyhZDHn2vcWqhmw134MEUjqXP2yY")
+SUPER_ADMIN = int(os.getenv("SUPER_ADMIN", "7655649084"))
+ADMIN_IDS  = [int(x) for x in os.getenv("ADMIN_IDS", "7655649084").split(",") if x.strip().isdigit()]
+DATA_FILE  = os.getenv("DATA_FILE", "data_ff.json")
+RENTAL_END_AT = os.getenv("RENTAL_END_AT", "")
+
+# GÓI THUÊ BOT
+RENT_BOT_PRICE = 25000
+RENT_BOT_DURATION = "1 Tuần"
+RENT_BOT_DESCRIPTION = (
+    "🤖 Bạn sẽ được cấp một bot riêng chạy trên server của chúng tôi.\n"
+    "📦 Bot có đầy đủ tính năng bán key, nạp tiền tự động (giản lược)."
+)
+# Thông tin ngân hàng của bot chính. Không tự chèn QR/URL lạ.
+# Nếu đã có trong data_ff.json thì dữ liệu trong DATA sẽ được ưu tiên.
+BANK_QR_URL = "https://ibb.co/tTwBkTmK"
+BANK_ACCOUNT = os.getenv("BANK_ACCOUNT", "").strip()
+BANK_ACCOUNT_NAME = "DUONG THI TU TRINH"
+BANK_NAME = "MoMo"
+CHANNEL_IDS = [-1003894247079]
+SUPPORT    = "@ZerestMods"
+
+THE_CAO_PARTNER  = _THE_CAO_PID
+THE_CAO_KEY      = _THE_CAO_KEY
+THE_CAO_WALLET   = _THE_CAO_WALLET
+THE_CAO_URL      = "https://api.thesieure.com/chargingws/v2"
+
+THE_CAO_PRICES = {
+    10000:   9000,
+    20000:   18000,
+    30000:   27000,
+    50000:   45000,
+    100000:  90000,
+    200000:  180000,
+    300000:  270000,
+    500000:  450000,
+    1000000: 900000,
+}
+
+# SẢN PHẨM API FAKE LAG
+FAKELAG_API_PRODUCTS = [
     {"id":"FAKELAG_1D","name":"FakeLag 1 Ngày","desc":"Key FakeLag 1 ngày","price":15000,"days":1,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=1","api_product":True},
     {"id":"FAKELAG_7D","name":"FakeLag 7 Ngày","desc":"Key FakeLag 7 ngày","price":25000,"days":7,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=7","api_product":True},
     {"id":"FAKELAG_30D","name":"FakeLag 30 Ngày","desc":"Key FakeLag 30 ngày","price":50000,"days":30,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=30","api_product":True},
