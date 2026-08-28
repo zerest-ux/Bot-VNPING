@@ -6,46 +6,46 @@ from telebot import types
 import json, os, datetime, threading, time, random, string, requests, base64, re, subprocess, sys
 
 
-# Cấu hình bí mật (gộp từ secret_config.py) — không chia sẻ
-_ENC_PARTNER_ID  = "OTIzOTM4NzU2OA=="
-_ENC_PARTNER_KEY = "MThlYjUyMzY2Y2IzM2FiMTdlOGY4MzNmNmExOTUzYjY="
-_ENC_WALLET_ID   = "NjEwNDE1ODE4NQ=="
+# Cấu hình bảo mật: dùng Environment Variables / GitHub Actions Secrets.
+# Không đặt BOT_TOKEN, Partner Key hoặc thông tin thanh toán trực tiếp trong source code.
 
-
-def _decode(value: str) -> str:
+def _env_int(name: str, default: int = 0) -> int:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return default
     try:
-        return base64.b64decode(value.encode()).decode()
-    except Exception:
-        return ""
+        return int(value)
+    except ValueError:
+        return default
 
 
-def get_the_cao_secrets():
-    return (
-        _decode(_ENC_PARTNER_ID),
-        _decode(_ENC_PARTNER_KEY),
-        _decode(_ENC_WALLET_ID),
-    )
+def _env_int_list(name: str, default=None):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return list(default or [])
+    result = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            result.append(int(item))
+        except ValueError:
+            continue
+    return result
 
 
-def update_secret(partner_id=None, partner_key=None, wallet_id=None):
-    if partner_id:
-        print(f'_ENC_PARTNER_ID  = "{base64.b64encode(partner_id.encode()).decode()}"')
-    if partner_key:
-        print(f'_ENC_PARTNER_KEY = "{base64.b64encode(partner_key.encode()).decode()}"')
-    if wallet_id:
-        print(f'_ENC_WALLET_ID   = "{base64.b64encode(wallet_id.encode()).decode()}"')
+THE_CAO_PARTNER = os.getenv("THE_CAO_PARTNER", "").strip()
+THE_CAO_KEY = os.getenv("THE_CAO_KEY", "").strip()
+THE_CAO_WALLET = os.getenv("THE_CAO_WALLET", "").strip()
 
-
-try:
-    _THE_CAO_PID, _THE_CAO_KEY, _THE_CAO_WALLET = get_the_cao_secrets()
-except Exception:
-    _THE_CAO_PID, _THE_CAO_KEY, _THE_CAO_WALLET = "", "", ""
-
-BOT_TOKEN  = os.getenv("BOT_TOKEN", "8637746220:AAGDcwEVyhZDHn2vcWqhmw134MEUjqXP2yY")
-SUPER_ADMIN = int(os.getenv("SUPER_ADMIN", "7655649084"))
-ADMIN_IDS  = [int(x) for x in os.getenv("ADMIN_IDS", "7655649084").split(",") if x.strip().isdigit()]
-DATA_FILE  = os.getenv("DATA_FILE", "data_ff.json")
-RENTAL_END_AT = os.getenv("RENTAL_END_AT", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+SUPER_ADMIN = _env_int("SUPER_ADMIN", 0)
+ADMIN_IDS = _env_int_list("ADMIN_IDS", [SUPER_ADMIN] if SUPER_ADMIN else [])
+DATA_FILE = os.getenv("DATA_FILE", "data_ff.json").strip() or "data_ff.json"
+RENTAL_END_AT = os.getenv("RENTAL_END_AT", "").strip()
+GITHUB_SYNC_DATA = os.getenv("GITHUB_SYNC_DATA", "0").strip().lower() in {"1", "true", "yes", "on"}
+GITHUB_SYNC_INTERVAL = max(60, _env_int("GITHUB_SYNC_INTERVAL", 300))
 
 # GÓI THUÊ BOT
 RENT_BOT_PRICE = 25000
@@ -56,17 +56,14 @@ RENT_BOT_DESCRIPTION = (
 )
 # Thông tin ngân hàng của bot chính. Không tự chèn QR/URL lạ.
 # Nếu đã có trong data_ff.json thì dữ liệu trong DATA sẽ được ưu tiên.
-BANK_QR_URL = "https://ibb.co/tTwBkTmK"
+BANK_QR_URL = os.getenv("BANK_QR_URL", "").strip()
 BANK_ACCOUNT = os.getenv("BANK_ACCOUNT", "").strip()
-BANK_ACCOUNT_NAME = "DUONG THI TU TRINH"
-BANK_NAME = "MoMo"
-CHANNEL_IDS = [-1003894247079]
-SUPPORT    = "@ZerestMods"
+BANK_ACCOUNT_NAME = os.getenv("BANK_ACCOUNT_NAME", "").strip()
+BANK_NAME = os.getenv("BANK_NAME", "").strip()
+CHANNEL_IDS = _env_int_list("CHANNEL_IDS", [])
+SUPPORT = os.getenv("SUPPORT", "").strip()
 
-THE_CAO_PARTNER  = _THE_CAO_PID
-THE_CAO_KEY      = _THE_CAO_KEY
-THE_CAO_WALLET   = _THE_CAO_WALLET
-THE_CAO_URL      = "https://api.thesieure.com/chargingws/v2"
+THE_CAO_URL = os.getenv("THE_CAO_URL", "https://api.thesieure.com/chargingws/v2").strip()
 
 THE_CAO_PRICES = {
     10000:   9000,
@@ -82,9 +79,9 @@ THE_CAO_PRICES = {
 
 # SẢN PHẨM API FAKE LAG
 FAKELAG_API_PRODUCTS = [
-    {"id":"FAKELAG_1D","name":"FakeLag 1 Ngày","desc":"Key FakeLag 1 ngày","price":5000,"days":1,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=1","api_product":True},
-    {"id":"FAKELAG_7D","name":"FakeLag 7 Ngày","desc":"Key FakeLag 7 ngày","price":15000,"days":7,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=7","api_product":True},
-    {"id":"FAKELAG_30D","name":"FakeLag 30 Ngày","desc":"Key FakeLag 30 ngày","price":25000,"days":30,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=30","api_product":True},
+    {"id":"FAKELAG_1D","name":"FakeLag 1 Ngày","desc":"Key FakeLag 1 ngày","price":15000,"days":1,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=1","api_product":True},
+    {"id":"FAKELAG_7D","name":"FakeLag 7 Ngày","desc":"Key FakeLag 7 ngày","price":25000,"days":7,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=7","api_product":True},
+    {"id":"FAKELAG_30D","name":"FakeLag 30 Ngày","desc":"Key FakeLag 30 ngày","price":50000,"days":30,"api_url":"https://www.ptavqamod.x10.mx/admin.php?d=30","api_product":True},
 ]
 DEFAULT_PRODUCTS = [dict(x, stock=["API_AUTO"] * 9999) for x in FAKELAG_API_PRODUCTS]
 
@@ -370,6 +367,11 @@ def remaining_text(order):
         return "N/A"
 
 # BOT
+if not BOT_TOKEN:
+    raise RuntimeError("Thiếu BOT_TOKEN. Hãy tạo GitHub Secret/Environment Variable BOT_TOKEN.")
+if SUPER_ADMIN <= 0:
+    raise RuntimeError("Thiếu SUPER_ADMIN hoặc SUPER_ADMIN không hợp lệ.")
+
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None, threaded=False)
 
 # KEYBOARDS
@@ -438,6 +440,10 @@ def validate_telegram_bot_token(token):
 
 def launch_rental_bot(token, admin_id, rent_id, days=7, expires_at=None, bank=None):
     # Dùng hạn thuê đã lưu trong DATA, không tính lại 7 ngày khi restart.
+    # Trên GitHub-hosted runner, tiến trình con chỉ sống cùng job. Có thể tắt tính năng
+    # thuê bot con bằng GITHUB_DISABLE_RENTAL_CHILD=1 nếu không muốn chạy subprocess.
+    if os.getenv("GITHUB_DISABLE_RENTAL_CHILD", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        raise RuntimeError("Tính năng khởi chạy bot thuê con đang bị tắt trên môi trường này.")
     end_at = expires_at or (datetime.datetime.now()+datetime.timedelta(days=days)).isoformat(timespec="seconds")
     bank = bank or {}
     env=os.environ.copy()
@@ -452,9 +458,13 @@ def launch_rental_bot(token, admin_id, rent_id, days=7, expires_at=None, bank=No
         "BANK_ACCOUNT": str(bank.get("account", "")).strip(),
         "BANK_ACCOUNT_NAME": str(bank.get("account_name", "")).strip(),
         "BANK_NAME": str(bank.get("bank_name", "")).strip(),
+        "THE_CAO_PARTNER": os.getenv("THE_CAO_PARTNER", ""),
+        "THE_CAO_KEY": os.getenv("THE_CAO_KEY", ""),
+        "THE_CAO_WALLET": os.getenv("THE_CAO_WALLET", ""),
     })
     return subprocess.Popen([sys.executable, os.path.abspath(__file__)], env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
 
 def process_alive(pid):
     try:
@@ -2609,6 +2619,51 @@ def _boot_sequence():
     print()
 
 
+def _github_sync_once(force=False):
+    """Persist DATA_FILE to the current Git repository when explicitly enabled.
+
+    This is opt-in because data_ff.json may contain user/order records. Use a private repo.
+    The workflow must grant contents: write and checkout must persist git credentials.
+    """
+    if not GITHUB_SYNC_DATA:
+        return False
+    if not os.getenv("GITHUB_ACTIONS"):
+        return False
+    if not os.path.isfile(DATA_FILE):
+        return False
+    try:
+        status = subprocess.run(["git", "status", "--porcelain", "--", DATA_FILE],
+                                capture_output=True, text=True, timeout=20, check=False)
+        if not force and not status.stdout.strip():
+            return False
+        if not status.stdout.strip():
+            return False
+        subprocess.run(["git", "add", DATA_FILE], timeout=20, check=True)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet", "--", DATA_FILE],
+                              timeout=20, check=False)
+        if diff.returncode == 0:
+            return False
+        subprocess.run(["git", "-c", "user.name=github-actions[bot]",
+                        "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com",
+                        "commit", "-m", "chore: sync bot data"],
+                       timeout=30, check=True)
+        subprocess.run(["git", "push"], timeout=60, check=True)
+        print(f"[GITHUB] Đã đồng bộ {DATA_FILE}")
+        return True
+    except Exception as exc:
+        print(f"[GITHUB SYNC] {exc}")
+        return False
+
+
+def github_sync_worker():
+    if not GITHUB_SYNC_DATA or not os.getenv("GITHUB_ACTIONS"):
+        return
+    # Chờ một chút để checkout/git config hoàn tất.
+    while True:
+        time.sleep(GITHUB_SYNC_INTERVAL)
+        _github_sync_once()
+
+
 def rental_supervisor():
     """Khôi phục bot thuê từ rental_orders sau khi bot chính/server restart."""
     if os.getenv("RENTAL_CHILD") == "1":
@@ -2707,11 +2762,17 @@ if __name__ == "__main__":
     except Exception as _e:
         print(f"[BANK CONFIG] {_e}")
 
-    if RENTAL_END_AT and datetime.datetime.now() >= datetime.datetime.fromisoformat(RENTAL_END_AT):
-        raise SystemExit(0)
+    if RENTAL_END_AT:
+        try:
+            if datetime.datetime.now() >= datetime.datetime.fromisoformat(RENTAL_END_AT):
+                raise SystemExit(0)
+        except ValueError:
+            print("[RENTAL] RENTAL_END_AT không hợp lệ; bỏ qua hạn thuê.")
     _boot_sequence()
     threading.Thread(target=expiry_checker, daemon=True).start()
     threading.Thread(target=rental_supervisor, daemon=True).start()
+    if GITHUB_SYNC_DATA:
+        threading.Thread(target=github_sync_worker, daemon=True).start()
     if RENTAL_END_AT:
         threading.Thread(target=rental_shutdown_checker, daemon=True).start()
 
