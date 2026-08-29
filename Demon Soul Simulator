@@ -1,1 +1,480 @@
+--// CYBER CONTROL PANEL - DEMON SOUL SIMULATOR [ULTIMATE EDITION]
+--// Safe Simulation & Clean UI Architecture (#00F2FE)
 
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+-- Xóa UI cũ nếu có
+if PlayerGui:FindFirstChild("CyberMenu") then
+	PlayerGui.CyberMenu:Destroy()
+end
+
+local CYAN = Color3.fromRGB(0, 242, 254)
+local DARK = Color3.fromRGB(5, 15, 25)
+local DARK2 = Color3.fromRGB(8, 25, 38)
+local DARK3 = Color3.fromRGB(12, 32, 48)
+
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "CyberMenu"
+Gui.ResetOnSpawn = false
+Gui.Parent = PlayerGui
+
+--// 1. Nút tròn nổi điều khiển
+local OpenButton = Instance.new("TextButton")
+OpenButton.Name = "FloatingButton"
+OpenButton.Size = UDim2.fromOffset(64, 64)
+OpenButton.Position = UDim2.new(0, 25, 0.5, -32)
+OpenButton.BackgroundColor3 = DARK
+OpenButton.Text = "♛"
+OpenButton.TextColor3 = CYAN
+OpenButton.TextSize = 28
+OpenButton.Font = Enum.Font.GothamBold
+OpenButton.Parent = Gui
+
+Instance.new("UICorner", OpenButton).CornerRadius = UDim.new(1, 0)
+local ButtonStroke = Instance.new("UIStroke", OpenButton)
+ButtonStroke.Color = CYAN
+ButtonStroke.Thickness = 2
+
+--// 2. Main Window
+local Main = Instance.new("Frame")
+Main.Name = "MainMenu"
+Main.Size = UDim2.fromOffset(760, 490)
+Main.Position = UDim2.new(0.5, -380, 0.5, -245)
+Main.BackgroundColor3 = DARK
+Main.Visible = false
+Main.Parent = Gui
+
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 16)
+local MainStroke = Instance.new("UIStroke", Main)
+MainStroke.Color = CYAN
+MainStroke.Thickness = 2
+
+--// Header
+local Header = Instance.new("TextButton")
+Header.Size = UDim2.new(1, -20, 0, 60)
+Header.Position = UDim2.fromOffset(15, 10)
+Header.BackgroundTransparency = 1
+Header.Text = "♛  DEMON SOUL SIMULATOR [PRO HUB]"
+Header.TextColor3 = CYAN
+Header.TextSize = 19
+Header.Font = Enum.Font.GothamBold
+Header.TextXAlignment = Enum.TextXAlignment.Left
+Header.Parent = Main
+
+local Close = Instance.new("TextButton")
+Close.Size = UDim2.fromOffset(38, 38)
+Close.Position = UDim2.new(1, -50, 0, 16)
+Close.BackgroundColor3 = DARK2
+Close.Text = "×"
+Close.TextColor3 = CYAN
+Close.TextSize = 26
+Close.Font = Enum.Font.GothamBold
+Close.Parent = Main
+
+Instance.new("UICorner", Close).CornerRadius = UDim.new(0, 10)
+local CloseStroke = Instance.new("UIStroke", Close)
+CloseStroke.Color = CYAN
+
+--// Sidebar
+local Side = Instance.new("ScrollingFrame")
+Side.Size = UDim2.fromOffset(190, 395)
+Side.Position = UDim2.fromOffset(15, 75)
+Side.BackgroundColor3 = DARK2
+Side.BorderSizePixel = 0
+Side.ScrollBarThickness = 2
+Side.ScrollBarImageColor3 = CYAN
+Side.Parent = Main
+
+Instance.new("UICorner", Side).CornerRadius = UDim.new(0, 12)
+local SideLayout = Instance.new("UIListLayout", Side)
+SideLayout.Padding = UDim.new(0, 6)
+SideLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SideLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+
+local SidePadding = Instance.new("UIPadding", Side)
+SidePadding.PaddingTop = UDim.new(0, 10)
+
+--// Pages Container
+local PagesContainer = Instance.new("Frame")
+PagesContainer.Size = UDim2.new(1, -225, 1, -85)
+PagesContainer.Position = UDim2.fromOffset(215, 75)
+PagesContainer.BackgroundTransparency = 1
+PagesContainer.Parent = Main
+
+local Pages = {}
+local TabButtons = {}
+
+local function CreatePage(name)
+	local Content = Instance.new("ScrollingFrame")
+	Content.Name = name .. "Page"
+	Content.Size = UDim2.new(1, 0, 1, 0)
+	Content.BackgroundTransparency = 1
+	Content.BorderSizePixel = 0
+	Content.ScrollBarThickness = 3
+	Content.ScrollBarImageColor3 = CYAN
+	Content.CanvasSize = UDim2.new(0, 0, 0, 0)
+	Content.Visible = false
+	Content.Parent = PagesContainer
+
+	local ContentLayout = Instance.new("UIListLayout", Content)
+	ContentLayout.Padding = UDim.new(0, 8)
+
+	local ContentPadding = Instance.new("UIPadding", Content)
+	ContentPadding.PaddingRight = UDim.new(0, 10)
+
+	ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		Content.CanvasSize = UDim2.new(0, 0, 0, ContentLayout.AbsoluteContentSize.Y + 15)
+	end)
+
+	Pages[name] = Content
+	return Content
+end
+
+local function AddTab(name, icon)
+	local B = Instance.new("TextButton")
+	B.Size = UDim2.fromOffset(165, 42)
+	B.BackgroundColor3 = DARK
+	B.Text = icon .. "  " .. name
+	B.TextColor3 = CYAN
+	B.TextSize = 13
+	B.Font = Enum.Font.GothamSemibold
+	B.Parent = Side
+
+	Instance.new("UICorner", B).CornerRadius = UDim.new(0, 8)
+	local S = Instance.new("UIStroke", B)
+	S.Color = CYAN
+	S.Thickness = 1
+	S.Transparency = 0.5
+
+	CreatePage(name)
+
+	B.MouseButton1Click:Connect(function()
+		for pageName, pageObj in pairs(Pages) do
+			pageObj.Visible = (pageName == name)
+		end
+		for _, btn in pairs(TabButtons) do
+			TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = DARK}):Play()
+		end
+		TweenService:Create(B, TweenInfo.new(0.2), {BackgroundColor3 = DARK3}):Play()
+	end)
+
+	table.insert(TabButtons, B)
+	return B
+end
+
+--// UI Components: Toggle, Slider, Dropdown
+local function AddToggle(page, name, description, callback)
+	local Row = Instance.new("Frame")
+	Row.Size = UDim2.new(1, -5, 0, 58)
+	Row.BackgroundColor3 = DARK2
+	Row.Parent = page
+
+	Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 10)
+	local Stroke = Instance.new("UIStroke", Row)
+	Stroke.Color = CYAN
+	Stroke.Transparency = 0.6
+
+	local Title = Instance.new("TextLabel", Row)
+	Title.Size = UDim2.new(1, -85, 0, 22)
+	Title.Position = UDim2.fromOffset(12, 7)
+	Title.BackgroundTransparency = 1
+	Title.Text = name
+	Title.TextColor3 = Color3.new(1,1,1)
+	Title.TextSize = 14
+	Title.Font = Enum.Font.GothamBold
+	Title.TextXAlignment = Enum.TextXAlignment.Left
+
+	local Desc = Instance.new("TextLabel", Row)
+	Desc.Size = UDim2.new(1, -85, 0, 18)
+	Desc.Position = UDim2.fromOffset(12, 30)
+	Desc.BackgroundTransparency = 1
+	Desc.Text = description
+	Desc.TextColor3 = Color3.fromRGB(140, 180, 195)
+	Desc.TextSize = 10
+	Desc.Font = Enum.Font.Gotham
+	Desc.TextXAlignment = Enum.TextXAlignment.Left
+
+	local ToggleBtn = Instance.new("TextButton", Row)
+	ToggleBtn.Size = UDim2.fromOffset(46, 24)
+	ToggleBtn.Position = UDim2.new(1, -58, 0.5, -12)
+	ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 45, 55)
+	ToggleBtn.Text = ""
+
+	Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(1, 0)
+
+	local Knob = Instance.new("Frame", ToggleBtn)
+	Knob.Size = UDim2.fromOffset(18, 18)
+	Knob.Position = UDim2.fromOffset(3, 3)
+	Knob.BackgroundColor3 = Color3.fromRGB(170, 190, 200)
+
+	Instance.new("UICorner", Knob).CornerRadius = UDim.new(1, 0)
+
+	local enabled = false
+	ToggleBtn.MouseButton1Click:Connect(function()
+		enabled = not enabled
+		TweenService:Create(Knob, TweenInfo.new(0.15), {
+			Position = enabled and UDim2.new(1, -21, 0, 3) or UDim2.fromOffset(3, 3),
+			BackgroundColor3 = enabled and CYAN or Color3.fromRGB(170,190,200)
+		}):Play()
+		TweenService:Create(ToggleBtn, TweenInfo.new(0.15), {
+			BackgroundColor3 = enabled and Color3.fromRGB(0, 80, 95) or Color3.fromRGB(30, 45, 55)
+		}):Play()
+
+		if callback then callback(enabled) end
+	end)
+
+	return Row
+end
+
+local function AddSlider(page, name, min, max, default, callback)
+	local Row = Instance.new("Frame")
+	Row.Size = UDim2.new(1, -5, 0, 65)
+	Row.BackgroundColor3 = DARK2
+	Row.Parent = page
+
+	Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 10)
+
+	local Label = Instance.new("TextLabel", Row)
+	Label.Size = UDim2.new(1, -25, 0, 22)
+	Label.Position = UDim2.fromOffset(12, 7)
+	Label.BackgroundTransparency = 1
+	Label.Text = name .. "  [" .. default .. "]"
+	Label.TextColor3 = CYAN
+	Label.TextSize = 13
+	Label.Font = Enum.Font.GothamBold
+	Label.TextXAlignment = Enum.TextXAlignment.Left
+
+	local Bar = Instance.new("Frame", Row)
+	Bar.Size = UDim2.new(1, -24, 0, 6)
+	Bar.Position = UDim2.fromOffset(12, 42)
+	Bar.BackgroundColor3 = Color3.fromRGB(30, 45, 55)
+
+	Instance.new("UICorner", Bar).CornerRadius = UDim.new(1, 0)
+
+	local Fill = Instance.new("Frame", Bar)
+	Fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+	Fill.BackgroundColor3 = CYAN
+
+	Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+
+	local dragging = false
+	Bar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+		end
+	end)
+
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	UIS.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local pos = math.clamp((input.Position.X - Bar.AbsolutePosition.X) / Bar.AbsoluteSize.X, 0, 1)
+			Fill.Size = UDim2.new(pos, 0, 1, 0)
+			local val = math.floor(min + (max - min) * pos)
+			Label.Text = name .. "  [" .. val .. "]"
+			if callback then callback(val) end
+		end
+	end)
+
+	return Row
+end
+
+local function AddDropdown(page, name, options, default, callback)
+	local Row = Instance.new("Frame")
+	Row.Size = UDim2.new(1, -5, 0, 48)
+	Row.BackgroundColor3 = DARK2
+	Row.Parent = page
+
+	Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 10)
+
+	local Label = Instance.new("TextLabel", Row)
+	Label.Size = UDim2.new(0, 140, 1, 0)
+	Label.Position = UDim2.fromOffset(12, 0)
+	Label.BackgroundTransparency = 1
+	Label.Text = name
+	Label.TextColor3 = Color3.new(1,1,1)
+	Label.TextSize = 13
+	Label.Font = Enum.Font.GothamBold
+	Label.TextXAlignment = Enum.TextXAlignment.Left
+
+	local DropBtn = Instance.new("TextButton", Row)
+	DropBtn.Size = UDim2.fromOffset(170, 30)
+	DropBtn.Position = UDim2.new(1, -180, 0.5, -15)
+	DropBtn.BackgroundColor3 = DARK3
+	DropBtn.Text = "  " .. default .. "  ▼"
+	DropBtn.TextColor3 = CYAN
+	DropBtn.TextSize = 12
+	DropBtn.Font = Enum.Font.GothamSemibold
+	DropBtn.TextXAlignment = Enum.TextXAlignment.Left
+
+	Instance.new("UICorner", DropBtn).CornerRadius = UDim.new(0, 6)
+
+	local currentIdx = 1
+	for i, opt in ipairs(options) do
+		if opt == default then currentIdx = i end
+	end
+
+	DropBtn.MouseButton1Click:Connect(function()
+		currentIdx = currentIdx % #options + 1
+		local selected = options[currentIdx]
+		DropBtn.Text = "  " .. selected .. "  ▼"
+		if callback then callback(selected) end
+	end)
+
+	return Row
+end
+
+--// ================= TAB 1: MAIN (TÍNH NĂNG CHÍNH DEMON SOUL) =================
+local pMain = AddTab("Main", "⌂")
+
+AddToggle(pMain, "Auto Mở Thẻ Nhanh", "Tự động triệu hồi thẻ nhân vật liên tục cực tốc", function(state)
+	print(">> [Demon Soul] Auto Mở Thẻ:", state)
+end)
+
+AddToggle(pMain, "Auto Đánh Boss Muzan", "Tự động dịch chuyển và tấn công Muzan khi xuất hiện", function(state)
+	print(">> [Demon Soul] Auto Đánh Muzan:", state)
+end)
+
+AddToggle(pMain, "Auto Raid (Đột Kích)", "Tự động tham gia và vượt qua các phòng Raid", function(state)
+	print(">> [Demon Soul] Auto Raid:", state)
+end)
+
+--// ================= TAB 2: FARM & ITEM (NHẶT ĐỒ & LỌC VẬT PHẨM) =================
+local pFarm = AddTab("Auto Farm", "⚔")
+
+AddToggle(pFarm, "Auto Farm Quái Thường", "Tự động tìm kiếm và tiêu diệt quái gần nhất", function(state)
+	print(">> [Demon Soul] Auto Farm Quái:", state)
+end)
+
+AddToggle(pFarm, "Auto Lấy Vật Phẩm", "Tự động thu thập các vật phẩm/linh hồn rơi ra", function(state)
+	print(">> [Demon Soul] Auto Lấy Vật Phẩm:", state)
+end)
+
+AddDropdown(pFarm, "Phân Chia / Lọc Vật Phẩm", {"Tất Cả Vật Phẩm", "Chỉ Giữ Đồ Hiếm (Epic/Legend)", "Tự Động Bán Đồ Rác"}, "Chỉ Giữ Đồ Hiếm (Epic/Legend)", function(selected)
+	print(">> Đã đổi chế độ lọc đồ:", selected)
+end)
+
+AddToggle(pFarm, "Auto Sell (Bán Đồ Rác Nhanh)", "Tự động bán vật phẩm dư thừa để lấy xu", function(state)
+	print(">> [Demon Soul] Auto Sell:", state)
+end)
+
+--// ================= TAB 3: STATS & TRAIN =================
+local pStats = AddTab("Stats", "▥")
+AddToggle(pStats, "Auto Luyện Tập Soul", "Tự động tích lũy chỉ số sức mạnh linh hồn", function(state) end)
+AddSlider(pStats, "Độ Trễ Luyện Tập (ms)", 50, 500, 150, function(v) end)
+
+--// ================= TAB 4: PLAYER SETTING =================
+local pPlayer = AddTab("Player", "●")
+AddSlider(pPlayer, "Walk Speed", 16, 200, 16, function(v)
+	if Player.Character and Player.Character:FindFirstChild("Humanoid") then
+		Player.Character.Humanoid.WalkSpeed = v
+	end
+end)
+
+AddSlider(pPlayer, "Jump Power", 50, 350, 50, function(v)
+	if Player.Character and Player.Character:FindFirstChild("Humanoid") then
+		Player.Character.Humanoid.JumpPower = v
+	end
+end)
+
+AddToggle(pPlayer, "Infinite Jump (Nhảy Vô Hạn)", "Cho phép nhảy liên tục trên không trung", function(state)
+	print(">> Infinite Jump:", state)
+end)
+
+--// ================= TAB 5: TELEPORTS =================
+local pTele = AddTab("Teleports", "⌖")
+local function AddTpButton(name, pos)
+	local B = Instance.new("TextButton", pTele)
+	B.Size = UDim2.new(1, -5, 0, 40)
+	B.BackgroundColor3 = DARK2
+	B.Text = "  📍 Đến khu vực: " .. name
+	B.TextColor3 = CYAN
+	B.TextSize = 12
+	B.Font = Enum.Font.Gotham
+	B.TextXAlignment = Enum.TextXAlignment.Left
+	Instance.new("UICorner", B).CornerRadius = UDim.new(0, 8)
+	
+	B.MouseButton1Click:Connect(function()
+		if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+			Player.Character.HumanoidRootPart.CFrame = CFrame.new(pos)
+		end
+	end)
+end
+
+AddTpButton("Khu Vực 1 (Spawn / Shop)", Vector3.new(0, 5, 0))
+AddTpButton("Khu Vực 2 (Forest / Mobs)", Vector3.new(120, 5, 250))
+AddTpButton("Khu Vực Boss Muzan", Vector3.new(-250, 5, 400))
+AddTpButton("Khu Vực Raid Dungeon", Vector3.new(500, 5, -300))
+
+--// ================= TAB 6: MISC (TIỆN ÍCH) =================
+local pMisc = AddTab("Misc", "⚙")
+AddToggle(pMisc, "FPS Unlocker / Tối Ưu Hóa", "Gỡ giới hạn khung hình giúp game mượt mà", function(state) end)
+AddToggle(pMisc, "Hiển Thị FPS & Ping", "Bật bảng thông tin hiệu suất góc màn hình", function(state) end)
+
+-- Mặc định chọn tab Main đầu tiên
+for name, page in pairs(Pages) do
+	page.Visible = (name == "Main")
+end
+if TabButtons[1] then
+	TabButtons[1].BackgroundColor3 = DARK3
+end
+
+--// Đóng mở Menu mượt mà
+local menuOpen = false
+local function ToggleMenu(state)
+	menuOpen = state
+	Main.Visible = true
+	if state then
+		Main.Size = UDim2.fromOffset(700, 450)
+		TweenService:Create(Main, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(760, 490)
+		}):Play()
+	else
+		local tween = TweenService:Create(Main, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+			Size = UDim2.fromOffset(680, 430)
+		})
+		tween:Play()
+		tween.Completed:Connect(function()
+			if not menuOpen then Main.Visible = false end
+		end)
+	end
+end
+
+OpenButton.MouseButton1Click:Connect(function() ToggleMenu(not menuOpen) end)
+Close.MouseButton1Click:Connect(function() ToggleMenu(false) end)
+
+--// Kéo thả nút nổi & Header cửa sổ
+local function MakeDraggable(object, handle)
+	local dragging, dragStart, startPos
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = object.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+			end)
+		end
+	end)
+
+	UIS.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			local delta = input.Position - dragStart
+			object.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		end
+	end)
+end
+
+MakeDraggable(OpenButton, OpenButton)
+MakeDraggable(Main, Header)
